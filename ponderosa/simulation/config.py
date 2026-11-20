@@ -142,7 +142,7 @@ pedsim:
   pedsim_path: "/path/to/ped-sim"           # Directory containing ped-sim executable
   vcf_file: "/path/to/input.vcf"            # Input VCF with founder genotypes
   
-king_file: "/path/to/king.seg"              # KING output for founder selection
+king_file: "/path/to/king.kin0"             # KING .kin0/.kin/.seg for founder selection
 
 # Optional parameters (with defaults shown)
 pedsim:
@@ -178,7 +178,7 @@ output_path: "my_simulation"
 cleanup_temp: false
 
 Usage:
-  python ponderosa.py simulate --config simulation.yaml
+  python -m ponderosa simulate --config simulation.yaml
         """
         print(help_text)
         sys.exit(0)
@@ -222,8 +222,9 @@ Usage:
         # Convert path fields
         if "king_file" in main_config:
             main_config["king_file"] = Path(main_config["king_file"])
-        if "temp_dir" in main_config and main_config["temp_dir"]:
-            main_config["temp_dir"] = Path(main_config["temp_dir"])
+        # temp_dir is accepted for backwards compatibility but the workspace is always
+        # created next to output_path (same filesystem on HPC systems)
+        main_config.pop("temp_dir", None)
         
         return cls(
             pedsim=pedsim_config,
@@ -242,10 +243,15 @@ Usage:
         if not self.king_file.exists():
             raise FileNotFoundError(f"KING file not found: {self.king_file}")
         
-        # Check if we have reasonable number of relationships for training
-        total_pairs = len(self.training.relationship_types) * self.training.n_pairs_per_relationship
-        if total_pairs < 50:
-            logger.warning(f"Only {total_pairs} total pairs specified - may not be sufficient for training")
+        # Each relationship class needs > MIN_TRAINING_PAIRS (5) labelled pairs
+        if self.training.n_pairs_per_relationship <= 5:
+            logger.warning(
+                f"n_pairs_per_relationship={self.training.n_pairs_per_relationship}: each class needs "
+                "more than 5 training pairs"
+            )
+
+        if not Path(self.ibd_caller).exists():
+            raise FileNotFoundError(f"IBD caller script not found: {self.ibd_caller}")
         
         logger.info("Simulation configuration validation passed")
     
@@ -263,12 +269,10 @@ Usage:
             "king_file": str(self.king_file),
             "training": {
                 "n_pairs_per_relationship": self.training.n_pairs_per_relationship,
-                "relationship_types": self.training.relationship_types,
                 "max_kinship": self.training.max_kinship,
             },
             "ibd_caller": self.ibd_caller,
             "output_path": self.output_path,
-            "temp_dir": str(self.temp_dir) if self.temp_dir else None,
             "cleanup_temp": self.cleanup_temp,
         }
     

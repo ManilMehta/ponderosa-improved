@@ -1,0 +1,11 @@
+# One dataset per line, tab-separated. Paths may be absolute or relative to the run directory.
+# Use "-" for an empty optional field.
+#
+# name	ibd	ibd_caller	fam	map	training	king	ages	min_total_ibd
+# ibd:       hap-ibd .ibd(.gz) or phasedibd output (a filename containing chr1 expands to chr1..22)
+# map:       PLINK map (chr rsid cM bp) matching the data's genome build; required for hap-ibd
+# training:  pretrained classifier (*.classif.pkl), e.g. from `ponderosa simulate`; "-" trains from the FAM
+# king:      KING .kin0 for external validation
+#
+# Example (SacMEGA, from the V3 run):
+# SAC_MEGA	inputs/SAC_MEGA_phased_hapibd.ibd.gz	hap-ibd	inputs/SAC_MEGA_autosomes_acgt.fid_iid.fam	/quobyte/bmhenngrp/from-lssc0/data/snp-array/SAC_MEGA/genetic_hapibd.map	outputs/SAC_MEGA_sim_training.classif.pkl	/quobyte/bmhenngrp/from-lssc0/data/snp-array/SAC_MEGA/ponderosa_sacmega_input_data/sacmega_king.kin0	-	50

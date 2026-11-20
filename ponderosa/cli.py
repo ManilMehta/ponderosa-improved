@@ -8,6 +8,13 @@ with CLI arguments taking precedence over config file values.
 Usage:
     # Using a config file
     python -m ponderosa --config config.yaml
+
+    # V3 subcommands
+    python -m ponderosa validate --config config.yaml [--king cohort.kin0]
+    python -m ponderosa simulate --config simulation.yaml
+    python -m ponderosa pedigree --pairs out_pairs.txt --fam cohort.fam --output out
+    python -m ponderosa king-validate --pairs out_pairs.txt --king cohort.kin0 --output out
+    python -m ponderosa qc-duplicates --pairs out_pairs.txt --output out
     
     # Using command-line arguments
     python -m ponderosa --ibd segments.txt --fam samples.fam --ibd-caller phasedibd
@@ -74,10 +81,10 @@ For more information, visit: https://github.com/williamscole/PONDEROSA or email 
     )
     files_group.add_argument(
         '--ibd-caller',
-        choices=['phasedibd', 'hap-ibd', 'ibdseq'],
-        default='phasedibd',
+        choices=['phasedibd', 'hap-ibd'],
+        default=None,
         dest='ibd_caller',
-        help='IBD calling software used (default: phasedibd)'
+        help='IBD calling software used (default: value in --config, otherwise phasedibd)'
     )
     files_group.add_argument(
         '--truth',
@@ -89,7 +96,8 @@ For more information, visit: https://github.com/williamscole/PONDEROSA or email 
         '--map',
         type=Path,
         dest='mapf',
-        help='Genetic map file (required for hap-ibd if segments are in bp)'
+        help='PLINK genetic map (chr rsid cM bp). Required for hap-ibd (bp -> cM). '
+             'A filename containing "chr1" expands to chr1..chr22.'
     )
     files_group.add_argument(
         '--ages',
@@ -197,6 +205,18 @@ For more information, visit: https://github.com/williamscole/PONDEROSA or email 
         help='Increase verbosity (-v for INFO, -vv for DEBUG)'
     )
     output_group.add_argument(
+        '--validate-only',
+        action='store_true',
+        dest='validate_only',
+        help='Check every input, print the validation report and exit'
+    )
+    output_group.add_argument(
+        '--rank-trees',
+        action='store_true',
+        dest='rank_trees',
+        help='After inference, reconstruct and rank whole family trees (see "ponderosa pedigree")'
+    )
+    output_group.add_argument(
         '--debug',
         action='store_true',
         help='Show full error tracebacks on failure'
@@ -229,15 +249,22 @@ def validate_args(args: argparse.Namespace) -> None:
             sys.exit(1)
 
 
-def main() -> None:
+SUBCOMMANDS = ("validate", "simulate", "pedigree", "king-validate", "qc-duplicates")
+
+
+def main(argv=None) -> None:
     """
     Main CLI entry point for PONDEROSA.
     
     Parses arguments, creates configuration, validates inputs,
-    and runs the analysis pipeline.
+    and runs the analysis pipeline. The first argument may name a V3 subcommand.
     """
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if argv and argv[0] in SUBCOMMANDS:
+        sys.exit(run_subcommand(argv[0], argv[1:]))
+
     parser = create_parser()
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     
     # Validate arguments
     validate_args(args)
@@ -255,15 +282,34 @@ def main() -> None:
         
         # Validate configuration
         config.validate()
-        
+
+        if args.validate_only:
+            from .input_validation import validate_run_inputs, format_validation_report
+            report = validate_run_inputs(config)
+            print(format_validation_report(report))
+            sys.exit(0 if report.ok else 1)
+
         # Run the analysis
         from .core import run_ponderosa
         results = run_ponderosa(config)
-        
+
+        if results is None:  # train_only
+            print(f"\nTraining complete. Classifiers written to: {config.output.output}.classif.pkl")
+            return
+
         # Print summary if verbose
         if args.verbose > 0:
             print("\n" + results.summary())
-        
+
+        if args.rank_trees:
+            from . import dynamic_pedigree
+            ped_args = ["--pairs", f"{config.output.output}_pairs.txt", "--fam", str(config.files.fam),
+                        "--output", config.output.output,
+                        "--genome-length", str(config.algorithm.genome_length)]
+            if config.files.ages:
+                ped_args += ["--ages", str(config.files.ages)]
+            dynamic_pedigree.main(ped_args)
+
         print(f"\nAnalysis complete. Results written to: {config.output.output}*")
         
     except FileNotFoundError as e:
@@ -289,6 +335,96 @@ def main() -> None:
         else:
             print("(Run with --debug for full traceback)", file=sys.stderr)
         sys.exit(1)
+
+
+def run_subcommand(name: str, argv) -> int:
+    """Dispatch V3 subcommands."""
+    if name == "pedigree":
+        from .dynamic_pedigree import main as pedigree_main
+        return pedigree_main(argv)
+
+    if name == "validate":
+        p = argparse.ArgumentParser(prog="ponderosa validate",
+                                    description="Check every input before running (no IBD processing).")
+        p.add_argument("--config", "-c", type=Path)
+        p.add_argument("--ibd", type=Path)
+        p.add_argument("--fam", type=Path)
+        p.add_argument("--ibd-caller", dest="ibd_caller", choices=["phasedibd", "hap-ibd", "ibdseq"])
+        p.add_argument("--map", dest="mapf", type=Path)
+        p.add_argument("--training", type=Path)
+        p.add_argument("--truth", type=Path)
+        p.add_argument("--ages", type=Path)
+        p.add_argument("--king", type=Path, help="KING .kin0 to check for validation")
+        a = p.parse_args(argv)
+        from .input_validation import validate_run_inputs, format_validation_report
+        args_dict = {k: v for k, v in vars(a).items() if v is not None and k != "king"}
+        config = PonderosaConfig.from_cli_and_yaml(args_dict)
+        report = validate_run_inputs(config, king_file=a.king)
+        print(format_validation_report(report))
+        return 0 if report.ok else 1
+
+    if name == "simulate":
+        p = argparse.ArgumentParser(prog="ponderosa simulate",
+                                    description="Train classifiers on Ped-sim families built from cohort founders.")
+        p.add_argument("--config", "-c", type=Path, help="Simulation YAML (see --help-config)")
+        p.add_argument("--help-config", action="store_true", help="Show the simulation YAML format")
+        p.add_argument("--verbose", "-v", action="count", default=1)
+        a = p.parse_args(argv)
+        from .simulation.config import SimulationConfig
+        if a.help_config or not a.config:
+            SimulationConfig.print_help_and_exit()
+        logging.basicConfig(level=logging.DEBUG if a.verbose > 1 else logging.INFO,
+                            format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+        from .simulation.simulate import simulate
+        classifier = simulate(SimulationConfig.from_yaml(a.config))
+        print(f"Classifier written: {classifier}")
+        print(f"Apply it with: python -m ponderosa ... --training {classifier}")
+        return 0
+
+    if name == "king-validate":
+        p = argparse.ArgumentParser(prog="ponderosa king-validate",
+                                    description="Join PONDEROSA calls to KING .kin0 and cross-tabulate.")
+        p.add_argument("--pairs", required=True, type=Path, help="PONDEROSA {prefix}_pairs.txt")
+        p.add_argument("--king", required=True, type=Path, help="KING .kin0")
+        p.add_argument("--output", "-o", required=True)
+        p.add_argument("--fid-iid-sep", default="_", help="Separator joining KING FID and IID (default _)")
+        p.add_argument("--iid-only", action="store_true",
+                       help="Match KING rows on IID alone (when PONDEROSA IDs are plain IIDs)")
+        p.add_argument("--close-only", action="store_true",
+                       help="Only compare 1st- and 2nd-degree PONDEROSA calls")
+        a = p.parse_args(argv)
+        import pandas as pd
+        from .validation import write_king_validation_outputs
+        pairs_file = a.pairs
+        if a.close_only:
+            df = pd.read_csv(a.pairs, sep="\t", dtype=str)
+            df = df[df["degree"].isin(["1st", "2nd"])]
+            pairs_file = Path(f"{a.output}_close_relatives.tsv")
+            df.to_csv(pairs_file, sep="\t", index=False)
+            print(f"Written: {pairs_file} ({len(df)} close-relative calls)")
+        for path in write_king_validation_outputs(pairs_file, a.king, a.output, fid_iid_sep=a.fid_iid_sep,
+                                                  iid_only=a.iid_only):
+            print(f"Written: {path}")
+        counts = pd.read_csv(f"{a.output}_validation_counts.tsv", sep="\t")
+        print(counts.to_string(index=False))
+        return 0
+
+    if name == "qc-duplicates":
+        p = argparse.ArgumentParser(prog="ponderosa qc-duplicates",
+                                    description="Flag duplicate/MZ-like pairs and their connected components.")
+        p.add_argument("--pairs", required=True, type=Path)
+        p.add_argument("--output", "-o", required=True)
+        p.add_argument("--genome-length", type=float, default=3545.0)
+        a = p.parse_args(argv)
+        import pandas as pd
+        from .qc import DuplicateQCConfig, write_duplicate_qc_outputs
+        df = pd.read_csv(a.pairs, sep="\t", dtype={"id1": str, "id2": str})
+        out = write_duplicate_qc_outputs(df, a.output, DuplicateQCConfig(genome_length=a.genome_length))
+        for path in (out if isinstance(out, (list, tuple)) else [out]):
+            print(f"Written: {path}")
+        return 0
+
+    raise ValueError(f"Unknown subcommand {name}")
 
 
 if __name__ == '__main__':

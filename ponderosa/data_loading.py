@@ -1,3 +1,4 @@
+import logging
 from abc import ABC, abstractmethod
 import polars as pl
 import pandas as pd
@@ -9,6 +10,8 @@ import numpy as np
 from .config import FilesConfig, AlgorithmConfig
 from .ibd_tools import IBD, ProcessSegments, Features
 from .map_tools import GeneticMap
+
+logger = logging.getLogger(__name__)
 
 
 
@@ -133,7 +136,7 @@ class HapIBDLoader(IBDLoader):
                 'id1', 'id1_haplotype', 'id2', 'id2_haplotype', 
                 'chromosome', 'start_bp', 'end_bp', 'length_cm'
             ],
-            dtypes={
+            schema_overrides={
                 'id1': pl.Utf8,
                 'id1_haplotype': pl.Int8,
                 'id2': pl.Utf8, 
@@ -154,28 +157,61 @@ class HapIBDLoader(IBDLoader):
             ])
     
     def custom_process(self, df: pl.DataFrame, **kwargs) -> pl.DataFrame:
-        """Convert bp coordinates to cm using genetic map interpolation."""
-        genetic_map = kwargs["genetic_map"]
-        
-        # Convert start_bp to start_cm
-        start_bp_array = df.get_column("start_bp").to_numpy()
+        """Convert bp coordinates to cM using genetic map interpolation.
+
+        V3 (section 3): for every chromosome, each segment endpoint x (bp) is converted
+        by piecewise-linear interpolation between the PLINK map's (bp, cM) knots
+        (``np.interp``). Segment length is then recomputed as cM(end) - cM(start), so
+        every downstream feature and filter is in the PONDEROSA map's centimorgans.
+        """
+        genetic_map = kwargs.get("genetic_map")
+        if genetic_map is None:
+            raise ValueError(
+                "hap-IBD reports positions in base pairs; a genetic map is required "
+                "(pass map files with --map or files.map_files)."
+            )
+
         chrom_array = df.get_column("chromosome").to_numpy()
-        start_cm_array = genetic_map.interp(start_bp_array, chrom_array)
-        
-        # Convert end_bp to end_cm  
+        start_bp_array = df.get_column("start_bp").to_numpy()
         end_bp_array = df.get_column("end_bp").to_numpy()
+
+        n_outside = genetic_map.count_outside(np.concatenate([start_bp_array, end_bp_array]),
+                                              np.concatenate([chrom_array, chrom_array]))
+        if n_outside:
+            logger.warning(
+                f"{n_outside} hap-IBD segment endpoints lie outside the genetic map and were "
+                "clamped to the map ends (np.interp); their cM lengths will be shortened. "
+                "Check that the map spans the genotyped region and matches the genome build."
+            )
+
+        start_cm_array = genetic_map.interp(start_bp_array, chrom_array)
         end_cm_array = genetic_map.interp(end_bp_array, chrom_array)
-        
-        # Add the new cm columns and drop bp columns
+
         result = df.with_columns([
             pl.Series("start_cm", start_cm_array),
-            pl.Series("end_cm", end_cm_array)
+            pl.Series("end_cm", end_cm_array),
+            pl.Series("length_cm", end_cm_array - start_cm_array),
         ]).drop(["start_bp", "end_bp"])
-        
-        return result
-            
 
-        
+        return result.select([
+            'id1', 'id2', 'chromosome', 'start_cm', 'end_cm',
+            'id1_haplotype', 'id2_haplotype', 'length_cm'
+        ])
+
+    def load_filtered_segments(self, file_path: str, individuals: Optional[List[str]] = None, **process_kwargs) -> pl.DataFrame:
+        """Convert bp -> cM first, then apply the segment (3 cM) and pair (50 cM) filters in cM."""
+
+        segments = self.scan_file(file_path)
+        if individuals is not None:
+            ind_set = set(individuals)
+            segments = segments.filter(pl.col('id1').is_in(ind_set) & pl.col('id2').is_in(ind_set))
+
+        converted = self.custom_process(segments.collect(), **process_kwargs)
+        converted = converted.filter(pl.col('length_cm') >= self.min_segment_length)
+
+        return self.filter_pairs(converted, self.min_total_ibd, individuals=individuals)
+
+
 def load_ibd_from_file(file_paths: List[Path], ibd_caller: str, min_segment_length: float, min_total_ibd: float, to_pandas: bool = False, individuals: Optional[List[str]] = None, **kwargs) -> IBD:
  
     ibd_caller_dict = {
@@ -183,6 +219,11 @@ def load_ibd_from_file(file_paths: List[Path], ibd_caller: str, min_segment_leng
         "hap-ibd": HapIBDLoader
     }
  
+    if ibd_caller not in ibd_caller_dict:
+        raise ValueError(
+            f"No IBD loader for ibd_caller='{ibd_caller}'. Supported: {', '.join(ibd_caller_dict)}"
+        )
+
     loader_class = ibd_caller_dict[ibd_caller]
  
     single_file = len(file_paths) == 1
@@ -612,7 +653,18 @@ def load_individuals(config: FilesConfig) -> Individuals:
 def load_pairs(files: FilesConfig, alg_args: AlgorithmConfig, individuals: Optional[List[str]] = None) -> Pairs:
  
     # Load the IBD segments
-    ibd_segments = load_ibd_from_file(files.ibd_file_list, files.ibd_caller, alg_args.min_segment_length, alg_args.min_total_ibd, individuals=individuals)
+    load_kwargs = {}
+    if files.ibd_caller == "hap-ibd":
+        load_kwargs["genetic_map"] = GeneticMap.add_plink_list(files.map_file_list)
+
+    ibd_segments = load_ibd_from_file(
+        files.ibd_file_list,
+        files.ibd_caller,
+        alg_args.min_segment_length,
+        alg_args.min_total_ibd,
+        individuals=individuals,
+        **load_kwargs,
+    )
  
     # Add the IBD segments to the pairs
     pairs = Pairs.from_segment_df(ibd_segments)

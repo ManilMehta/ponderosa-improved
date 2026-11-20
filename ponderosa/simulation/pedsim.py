@@ -20,9 +20,10 @@ class PedSim:
                 def_file: str = None,
                 intf_file: str = None,
                 map_file: str = None,
-                founder_file: str = None):
+                founder_file: str = None,
+                seed: int = None):
 
-
+        output = Path(output)
         self.output = output
         self.prefix = output.name
         self.path = output.parent
@@ -41,14 +42,39 @@ class PedSim:
             "--intf": intf_file,
             "-m": map_file,
             "--set_founders": founder_file,
-            "-o": output
+            "-o": output,
+            "--seed": seed,
         }
+        # Always request PLINK fam output (simulation-everyone.fam). IBD callers such as
+        # hap-IBD need phased genotypes without missing calls, so keep phase and disable
+        # simulated missingness (ped-sim's defaults are unphased output and 0.1% missing).
+        self.switches = ["--fam", "--keep_phase", "--miss_rate 0"]
 
         
     def update_flag(self, flag, arg):
         assert flag in self.flags
 
         self.flags[flag] = arg
+
+    def set_replicates(self, n_sim: int):
+        """
+        Rewrite the def file so each pedigree template is simulated ``n_sim`` times.
+
+        Ped-sim reads the replicate count from the second field of each ``def`` line.
+        The founders file assigns a fresh founder draw to every replicate.
+        """
+        def_file = Path(self.flags["-d"])
+        lines = def_file.read_text().splitlines()
+        out = []
+        for line in lines:
+            fields = line.split()
+            if fields and fields[0] == "def" and len(fields) >= 4:
+                fields[2] = str(n_sim)
+                line = " ".join(fields)
+            out.append(line)
+        new_def = self.path / "pedigree.replicates.def"
+        new_def.write_text("\n".join(out) + "\n")
+        self.flags["-d"] = str(new_def)
 
     def get_file(self, file_type):
 
@@ -78,7 +104,9 @@ class PedSim:
 
     def _get_command(self, dry_run: bool = False):
 
-        cmd = " ".join([f"{flag} {arg}" for flag, arg in self.flags.items() if arg])
+        cmd = " ".join([f"{flag} {arg}" for flag, arg in self.flags.items() if arg is not None and arg != ""])
+        switches = self.switches if not dry_run else ["--fam"]
+        cmd += "".join(f" {sw}" for sw in switches)
 
         if dry_run:
             cmd += " --dry_run"
@@ -91,8 +119,13 @@ class PedSim:
             pedsim_cmd,
             shell=True,
             capture_output=True,
-            text=True,
-            check=True)
+            text=True)
+        if result.returncode != 0:
+            raise RuntimeError(
+                f"ped-sim failed (exit code {result.returncode}): {pedsim_cmd}\n"
+                f"stderr: {result.stderr}\nstdout: {result.stdout}"
+            )
+        return result
 
     # Execute the pedsim simulation
     def execute(self, dry_run: bool = False):

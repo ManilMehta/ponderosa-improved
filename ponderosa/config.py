@@ -79,7 +79,10 @@ class FilesConfig:
                 out_list.append(file_n)
 
         else:
-            ValueError(f"{file_type} file(s) have not been provided. Specify either '{single_file_arg(file_type)}' or '{multiple_file_arg(file_type)}'.")
+            if file_type == "map":
+                # A map is only required for hap-ibd (checked by input validation)
+                return []
+            raise ValueError(f"{file_type} file(s) have not been provided. Specify either '{single_file_arg(file_type)}' or '{multiple_file_arg(file_type)}'.")
 
         return out_list
     
@@ -193,14 +196,21 @@ class PonderosaConfig:
         files_dict = config_dict.get("files", {})
         
         # Single path fields (convert to Path objects)
-        single_path_fields = {'ibd', 'fam', 'ages', 'mapf', 'populations', 'training', 'rel_tree', 'truth'}
+        single_path_fields = {'ibd', 'fam', 'ages', 'mapf', 'populations', 'training', 'rel_tree', 'truth', 'priors'}
         for key, value in files_dict.items():
             if value is not None and key in single_path_fields:
                 files_dict[key] = Path(value)
         
-        # Handle map_files list (convert each string to Path)
-        if 'map_files' in files_dict and files_dict['map_files'] is not None:
-            files_dict['map_files'] = [Path(f) for f in files_dict['map_files']]
+        # Handle map_files / ibd_files lists (convert each string to Path)
+        for list_key in ('map_files', 'ibd_files'):
+            if files_dict.get(list_key) is not None:
+                files_dict[list_key] = [Path(f) for f in files_dict[list_key]]
+
+        # Drop None-valued optional entries so dataclass defaults apply
+        files_dict = {k: v for k, v in files_dict.items() if v is not None}
+        if 'ibd_caller' not in files_dict:
+            # Backwards-compatible default when neither the YAML nor the CLI sets it
+            files_dict['ibd_caller'] = 'phasedibd'
         
         # Create nested config objects
         files_config = FilesConfig(**files_dict)
@@ -226,11 +236,16 @@ class PonderosaConfig:
         
         # Override with CLI arguments
         # Map flat CLI args to nested structure
-        file_args = ["ibd", "fam", "ages", "mapf", "populations", "training", "ibd_caller", "truth"]
-        algorithm_args = ["min_segment_length", "min_total_ibd", "population", "genome_length", "train_only"]
-        output_args = ["output", "min_probability", "verbose"]
+        file_args = ["ibd", "fam", "ages", "mapf", "populations", "training", "ibd_caller", "truth",
+                     "rel_tree", "priors"]
+        algorithm_args = ["min_segment_length", "min_total_ibd", "max_gap", "population", "genome_length",
+                          "train_only"]
+        output_args = ["output", "min_probability", "verbose", "write_training"]
         
         for arg, value in cli_args.items():
+            # Flags left at False on the CLI must not override True values from the YAML
+            if value is False:
+                continue
             if value is not None:
                 if arg in file_args:
                     config_dict["files"][arg] = value
@@ -246,6 +261,10 @@ class PonderosaConfig:
         return {
             "files": {
                 "ibd": str(self.files.ibd) if self.files.ibd else None,
+                "ibd_files": [str(f) for f in self.files.ibd_files] if self.files.ibd_files else None,
+                "map_files": [str(f) for f in self.files.map_files] if self.files.map_files else None,
+                "rel_tree": str(self.files.rel_tree) if self.files.rel_tree else None,
+                "priors": str(self.files.priors) if self.files.priors else None,
                 "fam": str(self.files.fam),
                 "ibd_caller": self.files.ibd_caller,
                 "ages": str(self.files.ages) if self.files.ages else None,
@@ -261,6 +280,7 @@ class PonderosaConfig:
                 "use_phase_correction": self.algorithm.use_phase_correction,
                 "population": self.algorithm.population,
                 "genome_length": self.algorithm.genome_length,
+                "train_only": self.algorithm.train_only,
             },
             "output": {
                 "output": self.output.output,

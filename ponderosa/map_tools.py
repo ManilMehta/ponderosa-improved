@@ -146,21 +146,47 @@ class GeneticMap:
         map_df, genome_len = cls._wget_hapmap(map_build)
         return cls(map_df, genome_len)
 
+    def _chrom_knots(self, chrom) -> Tuple[np.ndarray, np.ndarray]:
+        """Return the (bp, cM) knots of one chromosome, sorted by bp."""
+        chrom_map = self.map_df.filter_chrom(chrom)
+        bp_val = chrom_map.get_col("bp")
+        cm_val = chrom_map.get_col("cm")
+        order = np.argsort(bp_val, kind="stable")
+        return bp_val[order], cm_val[order]
+
     def interp(self, arr: np.ndarray, chrom_arr: np.ndarray) -> np.ndarray:
+        """
+        Convert bp positions to cM by per-chromosome piecewise-linear interpolation:
+
+            cM(x) = cM_i + (x - bp_i) * (cM_{i+1} - cM_i) / (bp_{i+1} - bp_i),  bp_i <= x <= bp_{i+1}
+
+        Positions outside the map are clamped to the end values (np.interp behaviour).
+        """
 
         interp_arr = np.zeros(arr.shape[0])
 
         for chrom in np.unique(chrom_arr):
             chrom_idx = np.where(chrom_arr == chrom)[0]
 
-            chrom_map = self.map_df.filter_chrom(chrom)
+            bp_val, cm_val = self._chrom_knots(chrom)
+            if bp_val.shape[0] == 0:
+                raise ValueError(f"Genetic map has no positions for chromosome {chrom}")
 
-            cm_val = chrom_map.get_col("cm")
-            bp_val = chrom_map.get_col("bp")
-                    
             interp_arr[chrom_idx] = np.interp(arr[chrom_idx], bp_val, cm_val)
 
         return interp_arr
+
+    def count_outside(self, arr: np.ndarray, chrom_arr: np.ndarray) -> int:
+        """Number of positions outside the [first, last] bp of their chromosome's map."""
+        n = 0
+        for chrom in np.unique(chrom_arr):
+            bp_val, _ = self._chrom_knots(chrom)
+            pos = arr[chrom_arr == chrom]
+            if bp_val.shape[0] == 0:
+                n += pos.shape[0]
+                continue
+            n += int(((pos < bp_val[0]) | (pos > bp_val[-1])).sum())
+        return n
 
     def get_genome_length(self):
         return self.genome_len

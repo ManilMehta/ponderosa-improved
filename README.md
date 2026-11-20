@@ -1,3 +1,23 @@
+# PONDEROSA-IMPROVED (PONDEROSA V3)
+
+This fork implements every change in *PONDEROSA V3: computational description of the
+changes* (Mehta & Henn, UC Davis): input validation, correct hap-IBD bp→cM conversion,
+pairs with missing features, simulation-based training, ranked whole-family trees, the
+real-data fixes and KING validation. See [`docs/V3_IMPLEMENTATION.md`](docs/V3_IMPLEMENTATION.md)
+for the section-by-section record and verification, and [`hive/`](hive/README.md) for
+Slurm scripts.
+
+```bash
+python -m ponderosa validate --config run.yaml --king cohort.kin0      # check every input
+python -m ponderosa simulate --config simulation.yaml                  # train on simulated families
+python -m ponderosa --config run.yaml --training sim.classif.pkl --rank-trees
+python -m ponderosa pedigree --pairs out_pairs.txt --fam cohort.fam --output out [--lock F003:ID1:ID2:AV]
+python -m ponderosa king-validate --pairs out_pairs.txt --king cohort.kin0 --output out --close-only
+python -m ponderosa qc-duplicates --pairs out_pairs.txt --output out
+```
+
+---
+
 # PONDEROSA
 
 > **Note:** This is a major rewrite of PONDEROSA (v2). The codebase has been redesigned from the ground up for modularity, testability, and ease of collaboration. Some features from v1 are still being ported over — these are marked as *(in testing — not yet available)* below. Bug reports and contributions are welcome.

@@ -1,0 +1,18 @@
+# Simulation-based training config (python -m ponderosa simulate --config this.yaml)
+pedsim:
+  pedsim_path: "ped-sim"                   # directory with the ped-sim executable (setup_env.sh builds it here)
+  vcf_file: "inputs/COHORT_phased.vcf.gz"  # phased cohort VCF, all autosomes, same build as the map
+  simmap_file: null                        # default: {pedsim_path}/refined_mf.simmap
+  interference_file: null                  # default: {pedsim_path}/interfere/nu_p_campbell.tsv
+  def_file: null                           # default: ponderosa/config/default.def
+  random_seed: 20261119
+
+king_file: "inputs/COHORT_king.kin0"       # KING kinship among founder-pool samples
+
+training:
+  n_pairs_per_relationship: 100            # replicates per family template
+  max_kinship: 0.05                        # founders in a family must have KING kinship <= this
+
+ibd_caller: "hive/hap-ibd.sh"              # script name must match the IBD format (hap-ibd)
+output_path: "outputs/COHORT_sim_training"
+cleanup_temp: false                        # keep the workspace for inspection

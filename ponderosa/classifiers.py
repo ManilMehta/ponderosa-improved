@@ -51,7 +51,10 @@ def choose_discriminant_classifier(X, y, min_samples_for_qda=20):
         if has_invariance:
             # Adding jitter to X to stabilize the matrix inversion
             X = X + np.random.normal(0, 1e-8, X.shape)
-        model = QuadraticDiscriminantAnalysis()
+        # reg_param shrinks each class covariance toward the identity, keeping it
+        # full-rank even when features are collinear (otherwise QDA raises
+        # "covariance matrix ... is not full rank").
+        model = QuadraticDiscriminantAnalysis(reg_param=1e-2)
 
     return model.fit(X, y)
 
@@ -80,11 +83,24 @@ class RelationshipClassifier(ABC):
 
         self._validate_basic_input(X, y)
 
-        assert np.unique(y).shape[0] > 1
-
         unique, counts = np.unique(y, return_counts=True)
 
-        assert np.all(counts > min_training_pairs)
+        if unique.shape[0] < 2:
+            raise ValueError(
+                f"{self.name} classifier needs labelled pairs from at least two classes; found "
+                f"{dict(zip(unique.tolist(), counts.tolist())) or 'none'}. With a sparse pedigree, "
+                "train on simulated families (`python -m ponderosa simulate`) and pass --training."
+            )
+
+        too_few = {str(u): int(c) for u, c in zip(unique, counts) if c <= min_training_pairs}
+        if too_few:
+            raise ValueError(
+                f"{self.name} classifier: each class needs more than {min_training_pairs} labelled "
+                f"training pairs; too few for {too_few} (all classes: "
+                f"{dict(zip(map(str, unique.tolist()), counts.tolist()))}). Lower --min-total-ibd if distant "
+                "relatives are being filtered out, add labelled relatives, or use a pretrained / "
+                "simulation-trained classifier (--training)."
+            )
 
         return X, y
 
@@ -92,7 +108,7 @@ class RelationshipClassifier(ABC):
         if self.model:
             return list(self.model.classes_)
 
-    def data_from_pairs(self, pairs: Pairs, training: bool, registry: PedigreeRegistry = None):
+    def data_from_pairs(self, pairs: Pairs, training: bool, registry: PedigreeRegistry = None, return_mask: bool = False):
         if training:
             pair_arr = registry.get_relatives_from(self.nodes)
             y = pair_arr[:,2]
@@ -109,7 +125,13 @@ class RelationshipClassifier(ABC):
 
         X = pairs.get_pair_data_from(pair_list, *features, output_style="flatten")
 
-        return prepare_classifier_data(X, y) if training else prepare_classifier_data(X)[0]
+        if training:
+            return prepare_classifier_data(X, y)
+
+        valid_mask = ~np.isnan(X).any(axis=1)
+        X = X[valid_mask]
+
+        return (X, valid_mask) if return_mask else X
 
     def fit(self, X, y, loo: bool = False):
 
@@ -355,7 +377,7 @@ def run_inference(pairs: Pairs, trained_classifiers: Dict[str, RelationshipClass
 
     for classif_name, classif in trained_classifiers.items():
 
-        X = classif.data_from_pairs(pairs=pairs, training=False)
+        X, valid_mask = classif.data_from_pairs(pairs=pairs, training=False, return_mask=True)
 
         
         proba = classif.predict_proba(X)
@@ -366,6 +388,11 @@ def run_inference(pairs: Pairs, trained_classifiers: Dict[str, RelationshipClass
             proba = process_phase_error(proba)
             assert classes[-1] == "Phase error"
             classes.remove("Phase error")
+
+        if proba.shape[0] != pairs.n_pairs():
+            full_proba = np.full((pairs.n_pairs(), proba.shape[1]), np.nan)
+            full_proba[valid_mask] = proba
+            proba = full_proba
 
         matrix_hier.add_probs(proba, classes, classif_name)
 

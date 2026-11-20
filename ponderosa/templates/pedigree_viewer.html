@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PONDEROSA ranked family trees</title>
+<style>
+  :root {
+    --bg: #fbfaf7; --panel: #ffffff; --ink: #1d232a; --muted: #67707a; --line: #d9dde1;
+    --accent: #2f6f5e; --accent-soft: #e3efea; --male: #3c6e9f; --female: #b5546b; --unk: #7a7a7a;
+    --warn: #a86a12; --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+         color: var(--ink); background: var(--bg); }
+  header { padding: 18px 24px 10px; border-bottom: 1px solid var(--line); background: var(--panel); }
+  header h1 { margin: 0; font-size: 18px; font-weight: 650; letter-spacing: -0.01em; }
+  header p { margin: 4px 0 0; color: var(--muted); font-size: 13px; }
+  .layout { display: grid; grid-template-columns: 280px 1fr; min-height: calc(100vh - 70px); }
+  aside { border-right: 1px solid var(--line); background: var(--panel); overflow-y: auto; max-height: calc(100vh - 70px); }
+  aside input { width: calc(100% - 24px); margin: 12px; padding: 7px 9px; border: 1px solid var(--line);
+                border-radius: 6px; font: inherit; }
+  .fam { padding: 9px 14px; border-top: 1px solid #f0f1f3; cursor: pointer; display: flex;
+         justify-content: space-between; gap: 8px; align-items: baseline; }
+  .fam:hover { background: #f6f7f8; }
+  .fam.active { background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent); }
+  .fam .id { font-weight: 600; font-family: var(--mono); font-size: 13px; }
+  .fam .meta { color: var(--muted); font-size: 12px; text-align: right; }
+  main { padding: 18px 24px; overflow-x: auto; }
+  .tabs { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 14px; }
+  .tab { border: 1px solid var(--line); background: var(--panel); border-radius: 999px; padding: 4px 12px;
+         cursor: pointer; font-size: 13px; font-variant-numeric: tabular-nums; }
+  .tab.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px; margin-bottom: 16px; }
+  .stats { display: flex; gap: 22px; flex-wrap: wrap; color: var(--muted); font-size: 13px; }
+  .stats b { color: var(--ink); font-variant-numeric: tabular-nums; }
+  svg text { font-family: var(--mono); font-size: 11px; }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  th, td { text-align: left; padding: 5px 8px; border-bottom: 1px solid #eef0f2; }
+  th { color: var(--muted); font-weight: 600; font-size: 12px; position: sticky; top: 0; background: var(--panel); }
+  td.num { font-variant-numeric: tabular-nums; text-align: right; }
+  .chg { color: var(--warn); font-weight: 600; }
+  .legend { display: flex; gap: 16px; color: var(--muted); font-size: 12px; margin-top: 6px; flex-wrap: wrap; }
+  .note { color: var(--muted); font-size: 12px; }
+  .empty { color: var(--muted); padding: 40px 0; }
+</style>
+</head>
+<body>
+<header>
+  <h1>PONDEROSA ranked family trees</h1>
+  <p id="subtitle"></p>
+</header>
+<div class="layout">
+  <aside>
+    <input id="filter" placeholder="Filter by family or sample ID">
+    <div id="famlist"></div>
+  </aside>
+  <main id="main"><div class="empty">Select a family.</div></main>
+</div>
+<script>
+const DATA = /*__PEDIGREE_DATA__*/null;
+
+const el = (tag, attrs = {}, text) => {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v);
+  if (text !== undefined) e.textContent = text;
+  return e;
+};
+const svgEl = (tag, attrs = {}) => {
+  const e = document.createElementNS("http://www.w3.org/2000/svg", tag);
+  for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v);
+  return e;
+};
+const pct = p => (p == null ? "" : (100 * p).toFixed(p >= 0.995 || p < 0.005 ? 0 : 1) + "%");
+
+let state = { fam: null, tree: 0 };
+
+function renderList(filter = "") {
+  const list = document.getElementById("famlist");
+  list.innerHTML = "";
+  const f = filter.trim().toLowerCase();
+  for (const fam of DATA.families) {
+    if (f && !fam.family_id.toLowerCase().includes(f) && !fam.members.some(m => m.toLowerCase().includes(f))) continue;
+    const row = el("div", { class: "fam" + (state.fam === fam.family_id ? " active" : "") });
+    row.appendChild(el("span", { class: "id" }, fam.family_id));
+    const top = fam.trees.length ? pct(fam.trees[0].relative_probability) + " top tree" : (fam.reason || "");
+    row.appendChild(el("span", { class: "meta" }, `${fam.n_members} members · ${top}`));
+    row.onclick = () => { state.fam = fam.family_id; state.tree = 0; renderList(filter); renderFamily(); };
+    list.appendChild(row);
+  }
+}
+
+function layout(tree) {
+  const nodes = Object.fromEntries(tree.nodes.map(n => [n.id, n]));
+  const depth = {};
+  const getDepth = (id, seen = new Set()) => {
+    if (depth[id] !== undefined) return depth[id];
+    if (seen.has(id)) return 0;
+    seen.add(id);
+    const n = nodes[id];
+    const ps = [n.father, n.mother].filter(Boolean);
+    depth[id] = ps.length ? 1 + Math.max(...ps.map(p => getDepth(p, seen))) : 0;
+    return depth[id];
+  };
+  tree.nodes.forEach(n => getDepth(n.id));
+  // pull founders down next to their partner/children
+  for (let iter = 0; iter < 4; iter++) {
+    for (const n of tree.nodes) {
+      const kids = tree.nodes.filter(c => c.father === n.id || c.mother === n.id);
+      if (kids.length) {
+        const want = Math.min(...kids.map(k => depth[k.id])) - 1;
+        if (want > depth[n.id] && ![n.father, n.mother].some(Boolean)) depth[n.id] = want;
+      }
+    }
+  }
+  const gens = {};
+  for (const n of tree.nodes) (gens[depth[n.id]] = gens[depth[n.id]] || []).push(n.id);
+  const order = {};
+  const levels = Object.keys(gens).map(Number).sort((a, b) => a - b);
+  for (const g of levels) {
+    const ids = gens[g];
+    const key = id => {
+      const n = nodes[id];
+      const ps = [n.father, n.mother].filter(p => order[p] !== undefined);
+      const kidsOrder = tree.nodes.filter(c => (c.father === id || c.mother === id) && order[c.id] !== undefined);
+      if (ps.length) return ps.reduce((s, p) => s + order[p], 0) / ps.length;
+      if (kidsOrder.length) return kidsOrder.reduce((s, c) => s + order[c.id], 0) / kidsOrder.length;
+      return 1e6;
+    };
+    // keep couples adjacent: sort by sibship key, then place partners together
+    ids.sort((a, b) => key(a) - key(b) || a.localeCompare(b));
+    const placed = [];
+    const used = new Set();
+    for (const id of ids) {
+      if (used.has(id)) continue;
+      placed.push(id); used.add(id);
+      for (const c of tree.nodes) {
+        let partner = null;
+        if (c.father === id) partner = c.mother;
+        if (c.mother === id) partner = c.father;
+        if (partner && !used.has(partner) && ids.includes(partner)) { placed.push(partner); used.add(partner); }
+      }
+    }
+    placed.forEach((id, i) => { order[id] = i + (g % 2 ? 0.5 : 0); });
+    gens[g] = placed;
+  }
+  const W = 92, H = 110, pad = 50;
+  const maxW = Math.max(...levels.map(g => gens[g].length));
+  const pos = {};
+  for (const g of levels) {
+    const row = gens[g];
+    const offset = (maxW - row.length) * W / 2;
+    row.forEach((id, i) => { pos[id] = { x: pad + offset + i * W, y: pad + g * H }; });
+  }
+  return { pos, width: pad * 2 + maxW * W, height: pad * 2 + levels.length * H, nodes };
+}
+
+function drawTree(tree, highlight) {
+  const { pos, width, height, nodes } = layout(tree);
+  const svg = svgEl("svg", { width, height, viewBox: `0 0 ${width} ${height}` });
+  const couples = new Map();
+  for (const n of tree.nodes) {
+    if (!n.father && !n.mother) continue;
+    const k = (n.father || "?") + "|" + (n.mother || "?");
+    if (!couples.has(k)) couples.set(k, { f: n.father, m: n.mother, kids: [] });
+    couples.get(k).kids.push(n.id);
+  }
+  const R = 15;
+  for (const c of couples.values()) {
+    const ps = [c.f, c.m].filter(Boolean);
+    const px = ps.reduce((s, p) => s + pos[p].x, 0) / ps.length;
+    const py = Math.max(...ps.map(p => pos[p].y));
+    if (ps.length === 2) {
+      svg.appendChild(svgEl("line", { x1: pos[c.f].x, y1: pos[c.f].y, x2: pos[c.m].x, y2: pos[c.m].y,
+        stroke: "#9aa3ab", "stroke-width": 1.5 }));
+    }
+    const ky = Math.min(...c.kids.map(k => pos[k].y)) - R - 18;
+    svg.appendChild(svgEl("line", { x1: px, y1: py + (ps.length === 2 ? 0 : R), x2: px, y2: ky, stroke: "#9aa3ab", "stroke-width": 1.5 }));
+    const xs = c.kids.map(k => pos[k].x);
+    svg.appendChild(svgEl("line", { x1: Math.min(px, ...xs), y1: ky, x2: Math.max(px, ...xs), y2: ky, stroke: "#9aa3ab", "stroke-width": 1.5 }));
+    for (const k of c.kids) svg.appendChild(svgEl("line", { x1: pos[k].x, y1: ky, x2: pos[k].x, y2: pos[k].y - R, stroke: "#9aa3ab", "stroke-width": 1.5 }));
+  }
+  for (const n of tree.nodes) {
+    const { x, y } = pos[n.id];
+    const color = n.sex === 1 ? "var(--male)" : n.sex === 2 ? "var(--female)" : "var(--unk)";
+    const fill = n.sampled ? color : "#ffffff";
+    const common = { fill, stroke: color, "stroke-width": n.sampled ? 1.5 : 1.5, "stroke-dasharray": n.sampled ? "" : "3 2" };
+    let shape;
+    if (n.sex === 1) shape = svgEl("rect", { x: x - R, y: y - R, width: 2 * R, height: 2 * R, rx: 2, ...common });
+    else if (n.sex === 2) shape = svgEl("circle", { cx: x, cy: y, r: R, ...common });
+    else shape = svgEl("polygon", { points: `${x},${y - R - 2} ${x + R + 2},${y} ${x},${y + R + 2} ${x - R - 2},${y}`, ...common });
+    if (highlight && highlight.includes(n.id)) { shape.setAttribute("stroke", "#e0a100"); shape.setAttribute("stroke-width", 4); }
+    const title = svgEl("title");
+    title.textContent = `${n.id}${n.sampled ? "" : " (unsampled)"}${n.age != null ? ", age " + n.age : ""}` +
+      (n.duplicates && n.duplicates.length ? `\nduplicates: ${n.duplicates.join(", ")}` : "");
+    shape.appendChild(title);
+    svg.appendChild(shape);
+    const label = svgEl("text", { x, y: y + R + 14, "text-anchor": "middle", fill: n.sampled ? "#1d232a" : "#8a9299" });
+    label.textContent = n.sampled ? n.id : "unsampled";
+    svg.appendChild(label);
+    if (n.duplicates && n.duplicates.length) {
+      const d = svgEl("text", { x: x + R + 2, y: y - R, fill: "#a86a12" });
+      d.textContent = "×" + (n.duplicates.length + 1);
+      svg.appendChild(d);
+    }
+    if (n.age != null) {
+      const a = svgEl("text", { x, y: y + 4, "text-anchor": "middle", fill: n.sampled ? "#fff" : "#555" });
+      a.textContent = Math.round(n.age);
+      svg.appendChild(a);
+    }
+  }
+  return svg;
+}
+
+function renderFamily() {
+  const main = document.getElementById("main");
+  main.innerHTML = "";
+  const fam = DATA.families.find(f => f.family_id === state.fam);
+  if (!fam) { main.appendChild(el("div", { class: "empty" }, "Select a family.")); return; }
+  main.appendChild(el("h2", { style: "margin:0;font-size:18px" }, `${fam.family_id} · ${fam.n_members} sampled members`));
+  if (!fam.trees.length) {
+    main.appendChild(el("p", { class: "note" }, fam.reason || "No trees."));
+    main.appendChild(el("p", { class: "note" }, fam.members.join(", ")));
+    return;
+  }
+  const tabs = el("div", { class: "tabs" });
+  fam.trees.forEach((t, i) => {
+    const b = el("button", { class: "tab" + (i === state.tree ? " active" : "") }, `#${t.rank} · ${pct(t.relative_probability)}`);
+    b.onclick = () => { state.tree = i; renderFamily(); };
+    tabs.appendChild(b);
+  });
+  main.appendChild(tabs);
+  const tree = fam.trees[state.tree];
+  const card = el("div", { class: "card" });
+  const stats = el("div", { class: "stats" });
+  const stat = (k, v) => { const s = el("span"); s.append(k + " "); s.appendChild(el("b", {}, v)); stats.appendChild(s); };
+  stat("relative probability", pct(tree.relative_probability));
+  stat("log L", tree.log_likelihood.toFixed(2));
+  stat("unsampled parents", String(tree.n_latent));
+  stat("observed pairs", String(fam.n_observed_pairs));
+  card.appendChild(stats);
+  const holder = el("div", { style: "overflow-x:auto;margin-top:8px" });
+  holder.appendChild(drawTree(tree));
+  card.appendChild(holder);
+  const legend = el("div", { class: "legend" });
+  ["■ male", "● female", "◆ sex unknown", "dashed outline = unsampled (latent) parent", "hover a node for details"].forEach(t => legend.appendChild(el("span", {}, t)));
+  card.appendChild(legend);
+  main.appendChild(card);
+
+  const pcard = el("div", { class: "card" });
+  pcard.appendChild(el("div", { style: "font-weight:600;margin-bottom:6px" }, "Implied relationships"));
+  pcard.appendChild(el("div", { class: "note", style: "margin-bottom:8px" },
+    "Highlighted rows are pairs where this tree's relationship differs from PONDEROSA's pairwise call (for example a call that stopped at GPAV or HS)."));
+  const table = el("table");
+  const head = el("tr");
+  ["ID 1", "ID 2", "tree", "degree", "PONDEROSA call", "P(call)", "P(tree rel.)", "observed"].forEach(h => head.appendChild(el("th", {}, h)));
+  table.appendChild(head);
+  const order = { "1st": 0, "2nd": 1, "3rd": 2, "4th": 3, "none": 4 };
+  const pairs = [...tree.pairs].sort((a, b) => order[a.degree] - order[b.degree] || a.id1.localeCompare(b.id1));
+  for (const p of pairs) {
+    const tr = el("tr");
+    const changed = p.observed && p.ponderosa_call && p.ponderosa_call !== p.implied && (p.degree === "1st" || p.degree === "2nd");
+    tr.appendChild(el("td", {}, p.id1)); tr.appendChild(el("td", {}, p.id2));
+    tr.appendChild(el("td", changed ? { class: "chg" } : {}, p.implied));
+    tr.appendChild(el("td", {}, p.degree));
+    tr.appendChild(el("td", {}, p.ponderosa_call || "—"));
+    tr.appendChild(el("td", { class: "num" }, pct(p.ponderosa_prob)));
+    tr.appendChild(el("td", { class: "num" }, pct(p.prob_implied)));
+    tr.appendChild(el("td", {}, p.observed ? "yes" : "no IBD"));
+    tr.onmouseenter = () => { holder.innerHTML = ""; holder.appendChild(drawTree(tree, [p.id1, p.id2])); };
+    tr.onmouseleave = () => { holder.innerHTML = ""; holder.appendChild(drawTree(tree)); };
+    table.appendChild(tr);
+  }
+  pcard.appendChild(table);
+  main.appendChild(pcard);
+}
+
+if (!DATA) {
+  document.getElementById("main").innerHTML = '<div class="empty">No pedigree data embedded.</div>';
+} else {
+  const searched = DATA.families.filter(f => f.searched).length;
+  document.getElementById("subtitle").textContent =
+    `${DATA.families.length} families (${searched} searched) · ${DATA.duplicates.length} duplicate groups collapsed · ` +
+    `relative probabilities are best read as a ranking`;
+  document.getElementById("filter").oninput = e => renderList(e.target.value);
+  if (DATA.families.length) state.fam = DATA.families[0].family_id;
+  renderList();
+  renderFamily();
+}
+</script>
+</body>
+</html>

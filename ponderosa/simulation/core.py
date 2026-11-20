@@ -1,13 +1,17 @@
 """
-Script for executing the simulation
+Script for executing the simulation-training workflow.
 """
 
-from simulate import simulate
-from config import SimulationConfig
-from ..core import run_ponderosa
+from pathlib import Path
 
-def run_simulation(config: SimulationConfig):
+from .simulate import simulate
+from .config import SimulationConfig
 
-    ponderosa_config = simulate(config)
 
-    run_ponderosa(ponderosa_config)
+def run_simulation(config: SimulationConfig) -> Path:
+    """Run simulation-based training and return the trained classifier path.
+
+    The classifier is applied to real data with
+    ``python -m ponderosa ... --training {output_path}.classif.pkl``.
+    """
+    return simulate(config)

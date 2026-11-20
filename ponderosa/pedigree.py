@@ -519,7 +519,10 @@ class Siblings:
 
         sibling_pairs, sibling_labels = cls._find_siblings(pedigree)
 
-        sibling_ibd_data = pairs.get_pair_data_from(sibling_pairs, "IBD1", "IBD2", output_style="flatten")
+        if sibling_pairs.shape[0] == 0:
+            sibling_ibd_data = np.empty((0, 2))
+        else:
+            sibling_ibd_data = pairs.get_pair_data_from(sibling_pairs, "IBD1", "IBD2", output_style="flatten")
 
         return cls(sibling_pairs, sibling_labels, sibling_ibd_data, min_training_pairs)
 

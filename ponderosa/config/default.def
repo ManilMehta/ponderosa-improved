@@ -1,0 +1,29 @@
+# PONDEROSA V3 default Ped-sim pedigree templates for simulation-based training.
+#
+# The copy count (second field) is rewritten at run time to
+# training.n_pairs_per_relationship (default 100); every replicate gets a fresh
+# draw of unrelated founders from the cohort (--set_founders).
+#
+# Template "full3gen": a founder couple (generation 1, printed), two branches of
+# two full siblings each (generation 2), and one child of each reproducing
+# generation-2 sibling (generation 3). Labelled pairs produced:
+#   PO   (gen1-gen2, gen2-gen3)
+#   FS   (all generation-2 siblings)
+#   PGP / MGP (gen1-gen3, side determined by the sex of the gen-2 parent)
+#   AV   (gen2 non-parent sibling - gen3)
+#   CO   (first cousins, 3rd degree, gen3-gen3)
+def full3gen 1 3
+1 1
+2 2 2
+3 1
+
+# Template "half3gen": one generation-1 individual has a child with each of two
+# different founder spouses, giving half-siblings in generation 2; each half-sib
+# has one child in generation 3. Labelled pairs produced:
+#   PHS / MHS (side determined by the sex of the shared generation-1 parent)
+#   PO, PGP / MGP
+#   half-avuncular (3rd degree), half-first cousins (HCO, 4th degree)
+def half3gen 1 3
+1 1
+2 1 2  1:1 2:1
+3 1

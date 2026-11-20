@@ -1,0 +1,18 @@
+algorithm:
+  genome_length: 320.0
+  max_gap: 1.0
+  min_segment_length: 3.0
+  min_total_ibd: 50.0
+  population: pop1
+files:
+  ages: demo_run/demo_ages.txt
+  fam: demo_run/demo.fam
+  ibd: demo_run/demo_phasedibd.txt
+  ibd_caller: phasedibd
+  mapf: demo_run/demo.map
+  truth: demo_run/demo_truth.txt
+output:
+  min_probability: 0.5
+  output: demo_run/demo_ponderosa_output
+  verbose: true
+  write_training: true

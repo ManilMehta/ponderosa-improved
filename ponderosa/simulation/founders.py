@@ -39,6 +39,7 @@ def relatedness_from_ibd(
         ibd_caller = ibd_caller,
         min_segment_length = 5,
         min_total_ibd = 5,
+        **({"genetic_map": gm} if ibd_caller == "hap-ibd" else {}),
     )
 
     related_summary = (
@@ -58,14 +59,82 @@ def relatedness_from_ibd(
 
     return relatedness_dict
 
-def relatedness_from_king(king_file: Union[str, Path]) -> Dict[Tuple[str, str], float]:
+def _king_sample_ids(fid, iid, fid_iid_sep: str = "_") -> List[str]:
+    """Return the sample-ID spellings a KING row can match (IID and FID_IID)."""
+    iid = str(iid)
+    ids = [iid]
+    if fid is not None and not pd.isna(fid):
+        ids.append(f"{fid}{fid_iid_sep}{iid}")
+    return ids
 
-    king_df = pd.read_csv(king_file, sep="\\s+")
 
-    return {(row.ID1, row.ID2): row.PropIBD for row in king_df.itertuples()}
+def relatedness_from_king(king_file: Union[str, Path], fid_iid_sep: str = "_") -> Dict[Tuple[str, str], float]:
+    """
+    Read KING output (.kin0, .kin or .seg) and return pairwise kinship.
 
-def calculate_relatedness():
-    pass
+    V3: founder independence is defined on the KING *kinship* scale (max_kinship = 0.05
+    by default). If the file has a ``Kinship`` column (.kin0/.kin) it is used directly;
+    KING ``--ibdseg`` output (.seg) only has ``PropIBD``, which is converted to kinship as
+    PropIBD / 2.
+
+    Each pair is stored under both its IID and its FID_IID spelling so that it can be
+    matched to VCF sample IDs written either way.
+    """
+
+    king_df = pd.read_csv(king_file, sep=r"\s+", dtype=str)
+
+    if "ID1" not in king_df.columns or "ID2" not in king_df.columns:
+        raise ValueError(f"KING file must contain ID1 and ID2 columns: {king_file}")
+
+    if "Kinship" in king_df.columns:
+        kinship = pd.to_numeric(king_df["Kinship"], errors="coerce")
+    elif "PropIBD" in king_df.columns:
+        kinship = pd.to_numeric(king_df["PropIBD"], errors="coerce") / 2
+    else:
+        raise ValueError(f"KING file must contain a Kinship or PropIBD column: {king_file}")
+
+    fid1 = king_df["FID1"] if "FID1" in king_df.columns else king_df.get("FID", pd.Series([None] * len(king_df)))
+    fid2 = king_df["FID2"] if "FID2" in king_df.columns else king_df.get("FID", pd.Series([None] * len(king_df)))
+
+    out: Dict[Tuple[str, str], float] = {}
+    for f1, i1, f2, i2, k in zip(fid1, king_df["ID1"], fid2, king_df["ID2"], kinship):
+        if pd.isna(k):
+            continue
+        for a, b in zip(_king_sample_ids(f1, i1, fid_iid_sep), _king_sample_ids(f2, i2, fid_iid_sep)):
+            out[(a, b)] = float(k)
+
+    return out
+
+
+def calculate_relatedness(
+    king_file: Union[str, Path, None] = None,
+    ibd_file: Union[List[str], None] = None,
+    ibd_caller: Union[str, None] = None,
+    genetic_map_file_list: Union[List[str], None] = None,
+    sample_ids: Union[List[str], None] = None,
+) -> Dict[Tuple[str, str], float]:
+    """
+    Pairwise kinship used to define the founder graph G (V3, section 5).
+
+    Uses KING output when ``king_file`` is given (the method used for SacMEGA);
+    otherwise falls back to kinship estimated from IBD segments. If ``sample_ids`` is
+    given, pairs are restricted to those samples.
+    """
+
+    if king_file is not None:
+        relatedness = relatedness_from_king(king_file)
+    elif ibd_file is not None:
+        if ibd_caller is None:
+            raise ValueError("ibd_caller is required when computing relatedness from IBD files")
+        relatedness = relatedness_from_ibd(ibd_file, ibd_caller, genetic_map_file_list or [])
+    else:
+        raise ValueError("Provide either king_file or ibd_file to calculate relatedness")
+
+    if sample_ids is not None:
+        keep = set(map(str, sample_ids))
+        relatedness = {pair: k for pair, k in relatedness.items() if pair[0] in keep and pair[1] in keep}
+
+    return relatedness
 
 class Relatedness:
     pass
@@ -80,7 +149,9 @@ def get_simple_graph(nodes: List[str], relatedness_dict: dict, max_k: float) -> 
     G.add_nodes_from(nodes) # Add the nodes
 
     # Now susbset to only edges between sufficiently related individuals
-    edge_list = [pair for pair, k in relatedness_dict.items() if k > max_k]
+    node_set = set(nodes)
+    edge_list = [pair for pair, k in relatedness_dict.items()
+                 if k > max_k and pair[0] in node_set and pair[1] in node_set]
     G.add_edges_from(edge_list) # Add the edges between "related"
 
     return G
@@ -91,7 +162,7 @@ def simple_family_sample(G: nx.Graph, n_members: int):
         nodes = g.nodes()
         out_fam = [] # Stores the IDs of the founders
         for _ in range(n_members):
-            new_node = np.random.choice(list(nodes))
+            new_node = np.random.choice(sorted(nodes))
             out_fam.append(str(new_node))
             nodes = nodes - {new_node} - set(g.neighbors(new_node))
             if len(nodes) == 0:
@@ -111,11 +182,11 @@ class SampleRelatives:
         self.kinship = relatedness_dict
 
         # Should supply a sample list! May miss out on unrelated indviduals
-        if sample_list:
+        if sample_list is not None and len(sample_list) > 0:
             self.samples = np.array(sample_list)
         else:
-            samples = list(it.chain(*relatedness_dict.keys()))
-            self.samples = np.array(set(samples))
+            samples = sorted(set(it.chain(*relatedness_dict.keys())))
+            self.samples = np.array(samples)
 
         self.graph = nx.Graph()
 
@@ -138,7 +209,11 @@ class SampleRelatives:
             fam = simple_family_sample(self.graph, n_members)
 
         # Ensure that a founder family was found
-        assert len(fam) == n_members
+        if len(fam) != n_members:
+            raise RuntimeError(
+                f"Could not find {n_members} mutually unrelated founders (kinship <= {self.max_k}) "
+                f"in 100 attempts. Lower the family size or raise max_kinship."
+            )
         
         return fam
 

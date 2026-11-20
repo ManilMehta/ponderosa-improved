@@ -24,6 +24,7 @@ from .classifiers import train_load_classifiers, run_inference, RelationshipClas
 from .prediction import MatrixHierarchy
 from .output import write_files, write_evaluation_report
 from .evaluation import EvaluationResults
+from .input_validation import validate_run_inputs, format_validation_report
 
 logger = logging.getLogger(__name__)
 
@@ -90,6 +91,13 @@ def run_ponderosa(config: PonderosaConfig) -> PonderosaResults:
     
     logger.info("Starting PONDEROSA analysis")
     logger.info(f"\n{config}")
+
+    # Step 0 (V3): check every input before running
+    validation = validate_run_inputs(config)
+    for msg in validation.warnings:
+        logger.warning(f"Input check {msg.code}: {msg.message}")
+    if not validation.ok:
+        raise ValueError("Input validation failed:\n" + format_validation_report(validation))
     
     # Step 1: Load the relationship hierarchy
     logger.info("Loading relationship hierarchy...")
@@ -142,6 +150,7 @@ def run_ponderosa(config: PonderosaConfig) -> PonderosaResults:
     matrix_hierarchy = run_inference(pairs, classifiers, hierarchy)
     logger.info("Inference complete")
 
+    evaluation = None
     if config.files.truth:
         logger.info(f"Evaluating predictions against ground truth: {config.files.truth}")
         try:

@@ -1,5 +1,13 @@
 __pycache__/
 *.pyc
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
 del_*
 del
 ponderosa/simulation/hap-ibd/
+/*.png
+tests/data/simulation*/ponderosa_sim_*/
