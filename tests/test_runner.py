@@ -69,3 +69,32 @@ def test_dry_run_writes_script(folder, capsys):
     assert cmd_run([str(folder), "--dry-run"]) == 0
     assert (folder / "ponderosa_job.sbatch").exists()
     assert "Errors: 0" in capsys.readouterr().out
+
+
+def test_macaque_preset(tmp_path):
+    from ponderosa.config import PonderosaConfig
+    from ponderosa.species import get_species
+    d = tmp_path / "MAC"
+    d.mkdir()
+    # 20 per-chromosome maps named like a rhesus map set; IBD only on chr1-2
+    lines = (DEMO / "demo.map").read_text().splitlines()
+    for c in range(1, 21):
+        src = [l for l in lines if l.split()[0] == str(c)] or [f"{c} r{c}a 0.0 1000", f"{c} r{c}b 100.0 100000000"]
+        (d / f"rheMac10.chr{c}.map").write_text("\n".join(src) + "\n")
+    shutil.copy(DEMO / "demo_hapibd.txt", d / "mac.ibd")
+    shutil.copy(DEMO / "demo.fam", d / "mac.fam")
+    (d / "ponderosa.yaml").write_text("species: macaque\nmin_total_ibd: 20\n")
+    inp = discover_inputs(d)
+    assert inp["species"] == "macaque" and len(inp["map"]) == 20
+    assert inp["genome_length"] > 0 and inp["genome_length"] != 3545
+    assert inp["priors"].endswith("priors_macaque.yaml")
+    cfg = PonderosaConfig.from_yaml(write_run_config(inp, d / "outputs" / "MAC"))
+    cfg.validate()
+    assert cfg.files.n_autosomes == 20 and cfg.files.priors.name == "priors_macaque.yaml"
+    assert get_species("macaque").n_autosomes == 20
+    # a "chr1" map name expands to chr1..chr20 for macaque
+    single = PonderosaConfig.from_dict({"files": {"ibd": str(d / "mac.ibd"), "fam": str(d / "mac.fam"),
+                                                  "ibd_caller": "hap-ibd", "mapf": str(d / "rheMac10.chr1.map")},
+                                        "algorithm": {"species": "macaque"}})
+    single.validate()
+    assert len(single.files._map_file_list) == 20

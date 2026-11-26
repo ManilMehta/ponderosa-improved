@@ -38,12 +38,14 @@ class PlinkMap(pd.DataFrame):
                         header=None,
                         names=["chromosome", "rsid", "cm", "bp"],
                         dtype={
-                            "chromosome": 'int8',
+                            "chromosome": 'string',
                             "rsid": 'string',
                             "cm": 'float64',
-                            "bp": 'int64'         
+                            "bp": 'int64'
                         }
                     )
+        # Accept "1" or "chr1" (GRCh38-style) chromosome names
+        data["chromosome"] = data["chromosome"].str.replace(r"^(?i:chr)", "", regex=True).astype("int8")
         return cls(data)
 
     def _calculate_genome_length(self) -> float:

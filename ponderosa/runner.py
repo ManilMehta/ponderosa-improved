@@ -20,6 +20,7 @@ validation; results go to ``MY_DATASET/outputs/``.
 ``ponderosa.yaml`` may set any of::
 
     name: SAC_MEGA                 # output prefix (default: folder name)
+    species: macaque               # human (default) | macaque: 20 autosomes, map-measured genome length, macaque age priors
     ibd: cohort.ibd.gz             # or a list of files
     ibd_caller: hap-ibd            # hap-ibd | phasedibd
     fam: cohort.fam
@@ -162,7 +163,19 @@ def discover_inputs(folder: Path) -> Dict:
 
     inp["min_segment_length"] = float(overrides.get("min_segment_length", 3))
     inp["min_total_ibd"] = float(overrides.get("min_total_ibd", 50))
-    inp["genome_length"] = float(overrides.get("genome_length", 3545))
+    from .species import get_species, map_genome_length
+    sp = get_species(overrides.get("species"))
+    inp["species"] = sp.name
+    if "genome_length" in overrides:
+        inp["genome_length"] = float(overrides["genome_length"])
+    elif sp.genome_length is not None:
+        inp["genome_length"] = sp.genome_length
+    elif inp.get("map"):
+        inp["genome_length"] = round(map_genome_length(inp["map"]), 1)   # measured from the map
+    else:
+        raise RunSetupError(f"{sp.name}: set genome_length in ponderosa.yaml (no genetic map to measure it from)")
+    inp["priors"] = resolve(overrides["priors"]) if "priors" in overrides else (
+        str(sp.priors) if sp.name != "human" else None)
     inp["close_only_king"] = bool(overrides.get("close_only_king", True))
     inp["iid_only_king"] = bool(overrides.get("iid_only_king", False))
     slurm = dict(DEFAULT_SLURM)
@@ -193,14 +206,15 @@ def write_run_config(inp: Dict, out_prefix: Path) -> Path:
     files["ibd_files" if isinstance(inp["ibd"], list) else "ibd"] = inp["ibd"]
     if inp.get("map"):
         files["map_files" if isinstance(inp["map"], list) else "mapf"] = inp["map"]
-    for k in ("ages", "training"):
+    for k in ("ages", "training", "priors"):
         if inp.get(k):
             files[k] = inp[k]
     cfg = {
         "files": files,
         "algorithm": {"min_segment_length": inp["min_segment_length"],
                       "min_total_ibd": inp["min_total_ibd"],
-                      "genome_length": inp["genome_length"]},
+                      "genome_length": inp["genome_length"],
+                      "species": inp.get("species", "human")},
         "output": {"output": str(out_prefix), "verbose": 1},
     }
     path = Path(inp["folder"]) / "ponderosa_run_config.yaml"
@@ -251,7 +265,8 @@ def job_script(inp: Dict, config_path: Path, out_prefix: Path) -> str:
         "",
         "echo '== 3/4 ranked family trees'",
         f"{py} -m ponderosa pedigree --pairs {q(pairs)} --fam {q(inp['fam'])} --output {q(out_prefix)} "
-        f"--genome-length {inp['genome_length']}" + (f" --ages {q(inp['ages'])}" if inp.get("ages") else ""),
+        f"--genome-length {inp['genome_length']}" + (f" --ages {q(inp['ages'])}" if inp.get("ages") else "")
+        + (f" --priors {q(inp['priors'])}" if inp.get("priors") else ""),
     ]
     if inp.get("king"):
         lines += [
@@ -321,6 +336,7 @@ def cmd_run(argv: List[str]) -> int:
     for k in ("ibd", "ibd_caller", "fam", "map", "training", "king", "ages"):
         val = inp.get(k)
         print(f"  {k:<11} {val if k == 'ibd_caller' else show(val)}")
+    print(f"  {'species':<11} {inp['species']} (genome length {inp['genome_length']} cM)")
     print(f"  {'filters':<11} min_segment_length={inp['min_segment_length']} cM, "
           f"min_total_ibd={inp['min_total_ibd']} cM")
 

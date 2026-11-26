@@ -15,6 +15,8 @@ Results go to `MY_DATASET/outputs/`. If a folder holds several candidates for on
 (e.g. `x.ibd.gz` and `x_fixed.ibd.gz`), `ponderosa run` stops and asks you to pick one in
 `MY_DATASET/ponderosa.yaml` (`ibd: x.ibd.gz`). `ponderosa.yaml` can also set
 `min_total_ibd`, `genome_length`, `name` and `slurm: {account, partition, mem, cpus, time}`.
+For macaques add `species: macaque` to `ponderosa.yaml`: 20 autosomes, genome length measured
+from your recombination map, and macaque age windows (`ponderosa/config/priors_macaque.yaml`).
 Use `--dry-run` to only check and write the job script. The scripts below are the
 lower-level route (several datasets as one array job).
 

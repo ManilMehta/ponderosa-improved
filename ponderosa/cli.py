@@ -161,6 +161,13 @@ For more information, visit: https://github.com/williamscole/PONDEROSA or email 
         help='Population identifier for analysis (default: pop1)'
     )
     algo_group.add_argument(
+        '--species',
+        choices=['human', 'macaque'],
+        default=None,
+        dest='species',
+        help='Species preset: autosome count and age priors (default: human)'
+    )
+    algo_group.add_argument(
         '--genome-length',
         type=float,
         default=None,
@@ -312,6 +319,8 @@ def main(argv=None) -> None:
                         "--genome-length", str(config.algorithm.genome_length)]
             if config.files.ages:
                 ped_args += ["--ages", str(config.files.ages)]
+            if config.files.priors:
+                ped_args += ["--priors", str(config.files.priors)]
             dynamic_pedigree.main(ped_args)
 
         print(f"\nAnalysis complete. Results written to: {config.output.output}*")

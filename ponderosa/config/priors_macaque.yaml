@@ -1,0 +1,47 @@
+# Age prior configuration for PONDEROSA: rhesus macaque (Macaca mulatta)
+# Hard cutoffs in YEARS. Approximate values: females first give birth at ~3-4 years
+# and can breed into their early-to-mid 20s; males breed from ~4 years. Check these
+# against your colony's breeding records and tighten them if you can.
+
+age_priors:
+
+  PO:
+    signed: true
+    min_gap: 2.5   # youngest plausible parent
+    max_gap: 25    # oldest plausible parent
+
+  GP:
+    signed: true
+    min_gap: 6
+    max_gap: 45
+
+  PGP:
+    signed: true
+    min_gap: 6
+    max_gap: 45
+
+  MGP:
+    signed: true
+    min_gap: 6
+    max_gap: 40
+
+  HS:
+    signed: false
+    max_gap: 20
+
+  PHS:
+    signed: false
+    max_gap: 22
+
+  MHS:
+    signed: false
+    max_gap: 18    # one mother's reproductive span
+
+  AV:
+    signed: true
+    min_gap: -15
+    max_gap: 30
+
+  FS:
+    signed: false
+    max_gap: 18

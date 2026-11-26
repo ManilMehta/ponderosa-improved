@@ -16,6 +16,7 @@ HAPIBD_JAR=${HAPIBD_JAR:-$HOME/tools/hap-ibd.jar}
 # Directory with plink.chr{1..22}.GRCh37.map (the same maps used for the real data)
 MAP_DIR=${MAP_DIR:-$HOME/maps/plink.GRCh37.map}
 MEM_GB=${MEM_GB:-12}
+N_AUTOSOMES=${N_AUTOSOMES:-22}   # 20 for rhesus macaque
 THREADS=${SLURM_CPUS_PER_TASK:-4}
 # ===============================
 
@@ -23,7 +24,7 @@ THREADS=${SLURM_CPUS_PER_TASK:-4}
 [[ -d "$MAP_DIR" ]] || { echo "ERROR: map directory not found: $MAP_DIR"; exit 1; }
 
 : > "${dirpath}/genetic.map"
-for i in $(seq 1 22); do cat "${MAP_DIR}/plink.chr${i}.GRCh37.map" >> "${dirpath}/genetic.map"; done
+for i in $(seq 1 $N_AUTOSOMES); do cat "${MAP_DIR}/plink.chr${i}.GRCh37.map" >> "${dirpath}/genetic.map"; done
 
 java -Xmx${MEM_GB}g -jar "$HAPIBD_JAR" gt="$vcffile" map="${dirpath}/genetic.map" \
     nthreads="$THREADS" out="$prefix"

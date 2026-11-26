@@ -103,7 +103,7 @@ class PhasedIBDLoader(IBDLoader):
             schema_overrides={
                 'id1': pl.Utf8,
                 'id2': pl.Utf8,
-                'chromosome': pl.Int8,
+                'chromosome': pl.Utf8,   # "1" or "chr1" (GRCh38 style)
                 'start_cm': pl.Float64,
                 'end_cm': pl.Float64,
                 'id1_haplotype': pl.Int8,
@@ -112,7 +112,8 @@ class PhasedIBDLoader(IBDLoader):
         )
 
         df = df.with_columns(
-        (pl.col('end_cm') - pl.col('start_cm')).alias('length_cm')
+        (pl.col('end_cm') - pl.col('start_cm')).alias('length_cm'),
+        pl.col('chromosome').cast(pl.Utf8).str.replace(r'^(?i:chr)', '').cast(pl.Int8).alias('chromosome')
         )
         
         return df.select([
@@ -141,7 +142,7 @@ class HapIBDLoader(IBDLoader):
                 'id1_haplotype': pl.Int8,
                 'id2': pl.Utf8, 
                 'id2_haplotype': pl.Int8,
-                'chromosome': pl.Int8,
+                'chromosome': pl.Utf8,   # "1" or "chr1" (GRCh38 style)
                 'start_bp': pl.Int64,
                 'end_bp': pl.Int64,
                 'length_cm': pl.Float64
@@ -150,7 +151,8 @@ class HapIBDLoader(IBDLoader):
 
         return df.with_columns([
                 (pl.col('id1_haplotype') - 1).alias('id1_haplotype'),
-                (pl.col('id2_haplotype') - 1).alias('id2_haplotype')
+                (pl.col('id2_haplotype') - 1).alias('id2_haplotype'),
+                pl.col('chromosome').cast(pl.Utf8).str.replace(r'^(?i:chr)', '').cast(pl.Int8).alias('chromosome')
             ]).select([
                 'id1', 'id2', 'chromosome', 'start_bp', 'end_bp',
                 'id1_haplotype', 'id2_haplotype', 'length_cm'

@@ -47,6 +47,7 @@ class FilesConfig:
     mapf: Optional[Path] = None
     map_files: Optional[List[Path]] = None
     _map_file_list: Optional[List[Path]] = field(default=None, init=False)
+    n_autosomes: int = 22   # set from the species preset; used to expand "chr1" file names
 
     ibd: Optional[Path] = None
     ibd_files: Optional[List[Path]] = None
@@ -64,8 +65,9 @@ class FilesConfig:
             if not single_file.exists():
                 raise FileNotFoundError(f"{single_file_arg(file_type)} file not found: {single_file}")
             
-            if "chr1" in single_file.name: # Populate with all other chromosomes
-                out_list = [single_file.with_name(single_file.name.replace("chr1", f"chr{i}")) for i in range(1, 23)]
+            if "chr1" in single_file.name: # Populate with all other autosomes of the species
+                out_list = [single_file.with_name(single_file.name.replace("chr1", f"chr{i}"))
+                            for i in range(1, self.n_autosomes + 1)]
             else:
                 out_list = [single_file]
 
@@ -137,6 +139,7 @@ class AlgorithmConfig:
     # Population parameters
     population: str = "pop1"
     genome_length: float = 3545.0  # Default human genome length in cM
+    species: str = "human"         # human | macaque (see ponderosa/species.py)
     
     # Performance parameters
     validate_pair_order: bool = True
@@ -239,7 +242,7 @@ class PonderosaConfig:
         file_args = ["ibd", "fam", "ages", "mapf", "populations", "training", "ibd_caller", "truth",
                      "rel_tree", "priors"]
         algorithm_args = ["min_segment_length", "min_total_ibd", "max_gap", "population", "genome_length",
-                          "train_only"]
+                          "train_only", "species"]
         output_args = ["output", "min_probability", "verbose", "write_training"]
         
         for arg, value in cli_args.items():
@@ -281,6 +284,7 @@ class PonderosaConfig:
                 "population": self.algorithm.population,
                 "genome_length": self.algorithm.genome_length,
                 "train_only": self.algorithm.train_only,
+                "species": self.algorithm.species,
             },
             "output": {
                 "output": self.output.output,
@@ -292,6 +296,11 @@ class PonderosaConfig:
         }
     
     def validate(self) -> None:
+        from .species import get_species
+        sp = get_species(self.algorithm.species)
+        self.files.n_autosomes = sp.n_autosomes
+        if self.files.priors is None and sp.name != "human":
+            self.files.priors = sp.priors
         """Validate the entire configuration."""
         self.files.validate()
         
