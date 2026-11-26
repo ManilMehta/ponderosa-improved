@@ -51,7 +51,7 @@ def simulate(config: SimulationConfig) -> Path:
         pedsim = PedSim(
             vcf_file=str(temp_dir / f"input{vcf_ext}"),
             def_file=str(temp_dir / "pedigree.def"),
-            intf_file=str(temp_dir / "interference.tsv"),
+            intf_file=str(temp_dir / "interference.tsv") if config.pedsim.use_interference else None,
             map_file=str(temp_dir / "input.simmap"),
             output=temp_dir / "simulation",
             executable_path=str(config.pedsim.pedsim_executable),

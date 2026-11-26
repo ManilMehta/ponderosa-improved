@@ -81,7 +81,8 @@ def relatedness_from_king(king_file: Union[str, Path], fid_iid_sep: str = "_") -
     matched to VCF sample IDs written either way.
     """
 
-    king_df = pd.read_csv(king_file, sep=r"\s+", dtype=str)
+    from ..validation import read_king_table
+    king_df = read_king_table(king_file)
 
     if "ID1" not in king_df.columns or "ID2" not in king_df.columns:
         raise ValueError(f"KING file must contain ID1 and ID2 columns: {king_file}")
@@ -93,8 +94,7 @@ def relatedness_from_king(king_file: Union[str, Path], fid_iid_sep: str = "_") -
     else:
         raise ValueError(f"KING file must contain a Kinship or PropIBD column: {king_file}")
 
-    fid1 = king_df["FID1"] if "FID1" in king_df.columns else king_df.get("FID", pd.Series([None] * len(king_df)))
-    fid2 = king_df["FID2"] if "FID2" in king_df.columns else king_df.get("FID", pd.Series([None] * len(king_df)))
+    fid1, fid2 = king_df["FID1"], king_df["FID2"]
 
     out: Dict[Tuple[str, str], float] = {}
     for f1, i1, f2, i2, k in zip(fid1, king_df["ID1"], fid2, king_df["ID2"], kinship):
@@ -102,6 +102,7 @@ def relatedness_from_king(king_file: Union[str, Path], fid_iid_sep: str = "_") -
             continue
         for a, b in zip(_king_sample_ids(f1, i1, fid_iid_sep), _king_sample_ids(f2, i2, fid_iid_sep)):
             out[(a, b)] = float(k)
+            out[(b, a)] = float(k)
 
     return out
 

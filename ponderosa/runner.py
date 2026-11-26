@@ -177,7 +177,15 @@ def discover_inputs(folder: Path) -> Dict:
     inp["priors"] = resolve(overrides["priors"]) if "priors" in overrides else (
         str(sp.priors) if sp.name != "human" else None)
     inp["close_only_king"] = bool(overrides.get("close_only_king", True))
-    inp["iid_only_king"] = bool(overrides.get("iid_only_king", False))
+    if "iid_only_king" in overrides:
+        inp["iid_only_king"] = bool(overrides["iid_only_king"])
+    else:  # FAM with FID == IID for every sample (plink default): match KING on IID alone
+        try:
+            import pandas as pd
+            fam = pd.read_csv(inp["fam"], sep=r"\s+", header=None, dtype=str, usecols=[0, 1])
+            inp["iid_only_king"] = bool((fam[0] == fam[1]).all())
+        except Exception:
+            inp["iid_only_king"] = False
     slurm = dict(DEFAULT_SLURM)
     slurm.update(overrides.get("slurm", {}) or {})
     inp["slurm"] = slurm

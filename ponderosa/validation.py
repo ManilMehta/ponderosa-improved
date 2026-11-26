@@ -51,6 +51,52 @@ def combine_fid_iid(fid: object, iid: object, sep: str = "_") -> str:
     return f"{fid}{sep}{iid}"
 
 
+KING_RENAMES = {"IID1": "ID1", "IID2": "ID2", "KINSHIP": "Kinship", "INFTYPE": "InfType", "IBS0": "IBS0",
+                "HETHET": "HetHet", "NSNP": "N_SNP"}
+
+
+def infer_king_relationship(kinship: float, ibs0: Optional[float] = None) -> str:
+    """KING's degree boundaries (Manichaikul et al. 2010); PO vs FS from IBS0 when available."""
+    if pd.isna(kinship):
+        return "UN"
+    if kinship > 0.354:
+        return "Dup/MZ"
+    if kinship > 0.177:
+        if ibs0 is not None and not pd.isna(ibs0):
+            return "PO" if ibs0 < 0.0012 else "FS"
+        return "1st"
+    if kinship > 0.0884:
+        return "2nd"
+    if kinship > 0.0442:
+        return "3rd"
+    return "UN"
+
+
+def read_king_table(path: Path) -> pd.DataFrame:
+    """
+    Read KING output (.kin0 / .kin / .seg) or a plink2 --make-king-table file and return
+    standard columns FID1 ID1 FID2 ID2 Kinship InfType (+ any others). plink2 tables
+    (``#FID1 IID1 FID2 IID2 ... KINSHIP``) get an InfType derived from KING's kinship
+    boundaries; files without FID columns use the IID as FID.
+    """
+    df = pd.read_csv(path, sep=r"\s+", dtype=str)
+    df.columns = [c.lstrip("#") for c in df.columns]
+    df = df.rename(columns={c: KING_RENAMES[c.upper()] for c in df.columns
+                            if c.upper() in KING_RENAMES and c not in KING_RENAMES.values()})
+    if "ID1" not in df.columns and "IID1" in df.columns:
+        df = df.rename(columns={"IID1": "ID1", "IID2": "ID2"})
+    for n in ("1", "2"):
+        if f"FID{n}" not in df.columns and f"ID{n}" in df.columns:
+            df[f"FID{n}"] = df[f"ID{n}"]
+    if "Kinship" not in df.columns and "PropIBD" in df.columns:
+        df["Kinship"] = (pd.to_numeric(df["PropIBD"], errors="coerce") / 2).astype(str)
+    if "InfType" not in df.columns and "Kinship" in df.columns:
+        kin = pd.to_numeric(df["Kinship"], errors="coerce")
+        ibs0 = pd.to_numeric(df["IBS0"], errors="coerce") if "IBS0" in df.columns else [None] * len(df)
+        df["InfType"] = [infer_king_relationship(k, i) for k, i in zip(kin, ibs0)]
+    return df
+
+
 def load_king_kin0(
     king_file: Path,
     columns: KingValidationColumns = KingValidationColumns(),
@@ -63,7 +109,7 @@ def load_king_kin0(
     when the FAM uses FID_IID sample IDs); ``iid_only=True`` matches on IID alone.
     """
 
-    df = pd.read_csv(king_file, sep=r"\s+", dtype=str)
+    df = read_king_table(king_file)
     required = [columns.fid1, columns.id1, columns.fid2, columns.id2, columns.relationship]
     missing = [col for col in required if col not in df.columns]
     if missing:

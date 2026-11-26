@@ -145,8 +145,9 @@ def summarize_fam(fam_path: Path) -> FamSummary:
 def validate_king_kin0(path: Path) -> List[ValidationMessage]:
     """Validate that a KING kin0-like file has the columns needed for comparison."""
 
+    from .validation import read_king_table
     messages: List[ValidationMessage] = []
-    header = pd.read_csv(path, sep=r"\s+", nrows=0)
+    header = read_king_table(path).head(0)
     missing = sorted(KING_KIN0_COLUMNS - set(header.columns))
     if missing:
         messages.append(

@@ -119,7 +119,7 @@ def _symlink_files(temp_dir: Path, config: SimulationConfig):
         },
         "interference.tsv": {
             "source": config.pedsim.interference_file,
-            "required": True,
+            "required": config.pedsim.use_interference,
             "description": "crossover interference parameters"
         },
         "pedigree.def": {
@@ -218,8 +218,9 @@ def _validate_simulation_files(temp_dir: Path, config: SimulationConfig):
     required_files = {
         "pedigree.def": "pedigree definitions for simulation",
         "input.simmap": "genetic map for recombination",
-        "interference.tsv": "crossover interference parameters",
     }
+    if config is None or getattr(config.pedsim, "use_interference", True):
+        required_files["interference.tsv"] = "crossover interference parameters"
     
     for filename, description in required_files.items():
         file_path = temp_dir / filename

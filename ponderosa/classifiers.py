@@ -247,7 +247,10 @@ class SegmentCountClassifier(RelationshipClassifier):
 
         for cls in ["AV", "MGP", "MHS", "PGP", "PHS"]:
             mask = y == cls
-            print(f"{cls}: N = {X[mask, 0].min():.0f} - {X[mask, 0].max():.0f}")
+            if mask.any():   # a class can be absent (e.g. few training pairs pass the filters)
+                print(f"{cls}: N = {X[mask, 0].min():.0f} - {X[mask, 0].max():.0f}")
+            else:
+                print(f"{cls}: no training pairs")
 
 class HaplotypeScoreClassifier(RelationshipClassifier):
 

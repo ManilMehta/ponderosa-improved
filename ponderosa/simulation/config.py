@@ -34,7 +34,8 @@ class PedSimConfig:
     pedsim_path: Path  # Directory containing ped-sim executable
     vcf_file: Path  # Input VCF for founder genotypes
     simmap_file: Optional[Path] = None  # Sex-specific recombination map
-    interference_file: Optional[Path] = None  # Interference file
+    interference_file: Optional[Path] = None  # Interference file ("none" disables)
+    use_interference: bool = True
     def_file: Optional[Path] = None  # Pedigree definition file
     
     # ped-sim parameters
@@ -50,8 +51,12 @@ class PedSimConfig:
                 self.simmap_file = default_simmap
                 logger.info(f"Using default simmap file: {default_simmap}")
         
-        # Default interference file location  
-        if self.interference_file is None:
+        # interference_file: "none" -> Poisson crossovers (no interference model), e.g.
+        # for non-human species where the human (Campbell et al.) model does not apply
+        if str(self.interference_file).lower() == "none":
+            self.interference_file = None
+            self.use_interference = False
+        elif self.interference_file is None:
             default_intf = self.pedsim_path / "interfere" / "nu_p_campbell.tsv"
             if default_intf.exists():
                 self.interference_file = default_intf
@@ -84,7 +89,7 @@ class PedSimConfig:
                 raise FileNotFoundError(f"Required file not found: {file_path}")
         
         # Check optional files if provided
-        optional_files = [self.simmap_file, self.interference_file, self.def_file]
+        optional_files = [self.simmap_file, self.def_file] + ([self.interference_file] if self.use_interference else [])
         for file_path in optional_files:
             if file_path and not file_path.exists():
                 logger.warning(f"Optional file not found: {file_path}")
@@ -204,7 +209,11 @@ Usage:
         pedsim_dict = config_dict.get("pedsim", {})
         
         # Convert string paths to Path objects
-        path_fields = {'pedsim_path', 'simmap_file', 'interference_file', 'vcf_file', 'def_file'}
+        if str(pedsim_dict.get('interference_file', '')).lower() == 'none':
+            pedsim_dict['interference_file'] = 'none'
+        path_fields = {'pedsim_path', 'simmap_file', 'vcf_file', 'def_file'}
+        if pedsim_dict.get('interference_file') not in (None, 'none'):
+            path_fields.add('interference_file')
         for key, value in pedsim_dict.items():
             if key in path_fields and value is not None:
                 pedsim_dict[key] = Path(value)

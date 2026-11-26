@@ -49,6 +49,9 @@ class PedSim:
         # hap-IBD need phased genotypes without missing calls, so keep phase and disable
         # simulated missingness (ped-sim's defaults are unphased output and 0.1% missing).
         self.switches = ["--fam", "--keep_phase", "--miss_rate 0"]
+        # No interference file -> Poisson crossover model (ped-sim requires --pois explicitly)
+        self.model_switch = [] if intf_file else ["--pois"]
+        self.switches += self.model_switch
 
         
     def update_flag(self, flag, arg):
@@ -105,7 +108,7 @@ class PedSim:
     def _get_command(self, dry_run: bool = False):
 
         cmd = " ".join([f"{flag} {arg}" for flag, arg in self.flags.items() if arg is not None and arg != ""])
-        switches = self.switches if not dry_run else ["--fam"]
+        switches = self.switches if not dry_run else ["--fam"] + self.model_switch
         cmd += "".join(f" {sw}" for sw in switches)
 
         if dry_run:
