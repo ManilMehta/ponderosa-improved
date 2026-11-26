@@ -9,6 +9,10 @@ Usage:
     # Using a config file
     python -m ponderosa --config config.yaml
 
+    # One command: find inputs in a folder, check them, submit the whole pipeline to Slurm
+    ponderosa run DATASET_FOLDER
+    ponderosa status DATASET_FOLDER
+
     # V3 subcommands
     python -m ponderosa validate --config config.yaml [--king cohort.kin0]
     python -m ponderosa simulate --config simulation.yaml
@@ -249,7 +253,7 @@ def validate_args(args: argparse.Namespace) -> None:
             sys.exit(1)
 
 
-SUBCOMMANDS = ("validate", "simulate", "pedigree", "king-validate", "qc-duplicates")
+SUBCOMMANDS = ("run", "status", "validate", "simulate", "pedigree", "king-validate", "qc-duplicates")
 
 
 def main(argv=None) -> None:
@@ -339,6 +343,14 @@ def main(argv=None) -> None:
 
 def run_subcommand(name: str, argv) -> int:
     """Dispatch V3 subcommands."""
+    if name == "run":
+        from .runner import cmd_run
+        return cmd_run(argv)
+
+    if name == "status":
+        from .runner import cmd_status
+        return cmd_status(argv)
+
     if name == "pedigree":
         from .dynamic_pedigree import main as pedigree_main
         return pedigree_main(argv)

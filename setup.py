@@ -5,6 +5,7 @@ setup(
     version="0.1.0",
     packages=find_packages(),
     include_package_data=True,
+    entry_points={"console_scripts": ["ponderosa=ponderosa.cli:main"]},
     package_data={"ponderosa": ["config/*.yaml", "config/*.def", "templates/*.html"]},
     install_requires=[
         "polars>=0.20.31",

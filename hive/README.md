@@ -1,5 +1,24 @@
 # Running PONDEROSA-IMPROVED on HIVE
 
+## Quick start: one command per dataset
+
+```bash
+source /quobyte/bmhenngrp/$USER/ponderosa_v3_run/venv/bin/activate
+mkdir MY_DATASET            # put (or symlink) the inputs here:
+#   *.ibd.gz (hap-IBD) or phasedIBD output   *.fam   *.map
+#   optional: *.classif.pkl  *.kin0  ages.txt  ponderosa.yaml (overrides)
+ponderosa run MY_DATASET     # finds inputs, checks them, submits the Slurm job
+ponderosa status MY_DATASET  # job state, progress, outputs
+```
+
+Results go to `MY_DATASET/outputs/`. If a folder holds several candidates for one input
+(e.g. `x.ibd.gz` and `x_fixed.ibd.gz`), `ponderosa run` stops and asks you to pick one in
+`MY_DATASET/ponderosa.yaml` (`ibd: x.ibd.gz`). `ponderosa.yaml` can also set
+`min_total_ibd`, `genome_length`, `name` and `slurm: {account, partition, mem, cpus, time}`.
+Use `--dry-run` to only check and write the job script. The scripts below are the
+lower-level route (several datasets as one array job).
+
+
 Scripts for the UC Davis HIVE Slurm cluster, based on the setup that worked for SacMEGA
 (private venv, writable bytecode cache, `gcc/13.2.0` + `boost/1.84.0` for Ped-sim,
 `--ibd-caller` passed explicitly). Nothing here hardcodes an account or partition: edit

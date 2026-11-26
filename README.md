@@ -8,6 +8,8 @@ for the section-by-section record and verification, and [`hive/`](hive/README.md
 Slurm scripts.
 
 ```bash
+ponderosa run DATASET_FOLDER                                         # one command: check inputs + submit to Slurm
+ponderosa status DATASET_FOLDER
 python -m ponderosa validate --config run.yaml --king cohort.kin0      # check every input
 python -m ponderosa simulate --config simulation.yaml                  # train on simulated families
 python -m ponderosa --config run.yaml --training sim.classif.pkl --rank-trees

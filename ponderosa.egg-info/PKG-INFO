@@ -2,7 +2,8 @@ Metadata-Version: 2.4
 Name: ponderosa
 Version: 0.1.0
 Requires-Python: >=3.8
-Requires-Dist: polars>=0.20.0
+License-File: LICENSE
+Requires-Dist: polars>=0.20.31
 Requires-Dist: numpy
 Requires-Dist: pandas
 Requires-Dist: scikit-learn
@@ -10,5 +11,8 @@ Requires-Dist: networkx
 Requires-Dist: pyyaml
 Requires-Dist: matplotlib
 Requires-Dist: seaborn
+Requires-Dist: pyarrow
+Requires-Dist: scipy
+Dynamic: license-file
 Dynamic: requires-dist
 Dynamic: requires-python

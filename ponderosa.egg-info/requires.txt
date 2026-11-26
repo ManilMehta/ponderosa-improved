@@ -1,4 +1,4 @@
-polars>=0.20.0
+polars>=0.20.31
 numpy
 pandas
 scikit-learn
@@ -6,3 +6,5 @@ networkx
 pyyaml
 matplotlib
 seaborn
+pyarrow
+scipy
