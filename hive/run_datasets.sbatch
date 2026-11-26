@@ -7,15 +7,15 @@
 # Per dataset: input validation -> inference -> duplicate QC -> ranked family trees
 # -> KING validation (if a .kin0 is given). Outputs: outputs/<name>/<name>*.
 #
-# Edit the #SBATCH lines for your allocation (partition/account are not hardcoded).
+# HIVE group jobs use --account=<PI login>grp --partition=high; edit if your account differs.
 #SBATCH --job-name=ponderosa
 #SBATCH --time=04:00:00
 #SBATCH --mem=8G
 #SBATCH --cpus-per-task=1
 #SBATCH --output=logs/%x_%A_%a.out
 #SBATCH --error=logs/%x_%A_%a.err
-##SBATCH --partition=high
-##SBATCH --account=YOUR_ACCOUNT
+#SBATCH --partition=high
+#SBATCH --account=bmhenngrp
 set -euo pipefail
 
 RUN_DIR=${RUN_DIR:-$SLURM_SUBMIT_DIR}

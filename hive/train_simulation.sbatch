@@ -11,8 +11,8 @@
 #SBATCH --cpus-per-task=4
 #SBATCH --output=logs/%x_%j.out
 #SBATCH --error=logs/%x_%j.err
-##SBATCH --partition=high
-##SBATCH --account=YOUR_ACCOUNT
+#SBATCH --partition=high
+#SBATCH --account=bmhenngrp
 set -euo pipefail
 
 SIM_YAML=${1:?usage: sbatch train_simulation.sbatch SIMULATION_YAML}
