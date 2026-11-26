@@ -115,8 +115,10 @@ def run_ponderosa(config: PonderosaConfig) -> PonderosaResults:
     
     # Step 3: Load pairwise IBD data
     logger.info("Loading IBD segments and computing pairwise features...")
-    pairs = load_pairs(config.files, config.algorithm)
-    logger.info(f"Computed features for {pairs.n_pairs()} pairs")
+    # Only samples in the FAM are analysed: removing a sample from the FAM (e.g. a
+    # duplicate or a lab control) removes all of its IBD pairs.
+    pairs = load_pairs(config.files, config.algorithm, individuals=individuals.get_ids())
+    logger.info(f"Computed features for {pairs.n_pairs()} pairs (samples restricted to the FAM)")
     
     # Step 4: Build pedigree and find known relationships
     logger.info("Building pedigree and identifying relationships...")
