@@ -22,6 +22,11 @@ SRC_MAP=$M/RecombMap_rh10
 IN=PONDEROSA_MACAQUE_INPUT
 HAPIBD_JAR=${HAPIBD_JAR:?set HAPIBD_JAR=/path/to/hap-ibd.jar}
 THIN_BP=${THIN_BP:-5000}
+# The RecombMap_rh10 maps come from pyrho (LD-based) and total only ~288 cM, ~8x shorter
+# than pedigree-based rhesus maps (2,048 cM, Rogers et al. 2006; 2,357 cM male map,
+# Versoza et al. 2024). The fine-scale shape is kept and every cM value is multiplied by
+# one constant so the autosomes total TARGET_CM. Set TARGET_CM=0 to use the map unscaled.
+TARGET_CM=${TARGET_CM:-2357}
 W=macaque_work
 mkdir -p $W/maps logs $IN/GLIMPSE1_Final $IN/RecombMap_rh10
 
@@ -41,17 +46,23 @@ command -v java >/dev/null || { echo "ERROR: java not found"; exit 1; }
 source venv/bin/activate
 
 echo "[$(date)] 1/4 maps"
-python - "$MAPDIR" "$W" <<'PY'
+python - "$MAPDIR" "$W" "$TARGET_CM" <<'PY'
 import sys, pandas as pd
 from pathlib import Path
-mapdir, w = Path(sys.argv[1]), Path(sys.argv[2])
+mapdir, w, target = Path(sys.argv[1]), Path(sys.argv[2]), float(sys.argv[3])
+maps = {}
+for c in range(1, 21):
+    m = pd.read_csv(mapdir / f"{c}_cM_recombmix.map", sep=r"\s+")
+    m.columns = ["chr", "bp", "rate", "cm"]
+    maps[c] = m.sort_values("bp").assign(chr=c)
+raw = sum(m.cm.max() - m.cm.min() for m in maps.values())
+scale = target / raw if target > 0 else 1.0
+print(f"input map: {raw:.1f} cM total; scale factor {scale:.4f} -> {raw * scale:.1f} cM")
+(w / "map_scaling.txt").write_text(f"raw_total_cM\t{raw:.4f}\ntarget_cM\t{target}\nscale\t{scale:.6f}\n")
 plink, simmap = [], []
 for c in range(1, 21):
-    f = mapdir / f"{c}_cM_recombmix.map"
-    m = pd.read_csv(f, sep=r"\s+")
-    m.columns = ["chr", "bp", "rate", "cm"]
-    m = m.sort_values("bp")
-    m["chr"] = c
+    m = maps[c].copy()
+    m["cm"] = m["cm"] * scale
     m[["chr"]].assign(id=".", cm=m.cm, bp=m.bp).to_csv(w / "maps" / f"rheMac10.chr{c}.map", sep="\t", header=False, index=False)
     plink.append(m[["chr"]].assign(id=".", cm=m.cm, bp=m.bp))
     # Ped-sim only assigns sexes (needed for paternal vs maternal relatives) with a
